@@ -37,12 +37,7 @@
         background: #ff0000;
         position: absolute;
         border-radius: 8px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        font-weight: bold;
         user-select: none;
-        color: black;
     }
 
     .trail {
@@ -101,7 +96,7 @@
 <div id="effects"></div>
 <div id="flash"></div>
 
-<div id="dvd">DVD</div>
+<div id="dvd"></div>
 
 <script>
 const dvd = document.getElementById("dvd");
@@ -203,8 +198,11 @@ document.addEventListener("mouseup", e => {
     const dx = dvd.offsetLeft - window.innerWidth / 2;
     const dy = dvd.offsetTop - window.innerHeight / 2;
 
-    vx = dx * 0.15 * speedMultiplier;
-    vy = dy * 0.15 * speedMultiplier;
+    vx = dx * 0.15;
+    vy = dy * 0.15;
+
+    vx *= speedMultiplier;
+    vy *= speedMultiplier;
 
     if (speedSelect.value === "instant") {
         runInstant();
@@ -308,6 +306,10 @@ function runInstant() {
 
     bounceCountEl.textContent = bounces;
     celebrate();
+
+    setTimeout(() => {
+        centerDVD();
+    }, 600);
 }
 
 // Animation loop
@@ -315,9 +317,6 @@ function update() {
     if (!animating) return;
 
     spawnTrail();
-
-    vx = vx / Math.abs(vx || 1) * Math.abs(vx) * speedMultiplier;
-    vy = vy / Math.abs(vy || 1) * Math.abs(vy) * speedMultiplier;
 
     let x = dvd.offsetLeft + vx;
     let y = dvd.offsetTop + vy;
@@ -348,6 +347,11 @@ function update() {
     if (hitCorner) {
         animating = false;
         celebrate();
+
+        setTimeout(() => {
+            centerDVD();
+        }, 600);
+
         return;
     }
 
