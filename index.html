@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>DVD Bounce Launcher — Ultimate Edition</title>
+<title>DVD Bounce Launcher — Slingshot Edition</title>
 
 <style>
     body {
@@ -109,7 +109,15 @@ const flash = document.getElementById("flash");
 
 let dragging = false;
 let offsetX = 0, offsetY = 0;
-let vx = 0, vy = 0;
+
+// base velocity (never multiplied)
+let baseVX = 0;
+let baseVY = 0;
+
+// actual velocity (computed each frame)
+let vx = 0;
+let vy = 0;
+
 let bounceCount = 0;
 let animating = false;
 let speedMultiplier = 1;
@@ -167,7 +175,7 @@ function drawAimLine(x1, y1, x2, y2) {
 dvd.addEventListener("mousedown", e => {
     dragging = true;
     animating = false;
-    vx = vy = 0;
+    baseVX = baseVY = 0;
     bounceCount = 0;
     bounceCountEl.textContent = 0;
 
@@ -195,14 +203,9 @@ document.addEventListener("mouseup", e => {
 
     ctx.clearRect(0, 0, aimCanvas.width, aimCanvas.height);
 
-    const dx = dvd.offsetLeft - window.innerWidth / 2;
-    const dy = dvd.offsetTop - window.innerHeight / 2;
-
-    vx = dx * 0.15;
-    vy = dy * 0.15;
-
-    vx *= speedMultiplier;
-    vy *= speedMultiplier;
+    // True slingshot: shoot toward center
+    baseVX = (window.innerWidth / 2 - (dvd.offsetLeft + dvd.clientWidth / 2)) * 0.15;
+    baseVY = (window.innerHeight / 2 - (dvd.offsetTop + dvd.clientHeight / 2)) * 0.15;
 
     if (speedSelect.value === "instant") {
         runInstant();
@@ -273,27 +276,27 @@ function celebrate() {
 
 // Instant mode
 function runInstant() {
-    let x = dvd.offsetLeft;
-    let y = dvd.offsetTop;
-    let w = window.innerWidth - dvd.clientWidth;
-    let h = window.innerHeight - dvd.clientHeight;
+    let x = dvd.offsetLeft + dvd.clientWidth / 2;
+    let y = dvd.offsetTop + dvd.clientHeight / 2;
+    let w = window.innerWidth - dvd.clientWidth / 2;
+    let h = window.innerHeight - dvd.clientHeight / 2;
 
-    let vx = (x - window.innerWidth / 2) * 0.15;
-    let vy = (y - window.innerHeight / 2) * 0.15;
+    let vx = (window.innerWidth / 2 - x) * 0.15;
+    let vy = (window.innerHeight / 2 - y) * 0.15;
 
     let bounces = 0;
 
     while (true) {
-        let tx = vx > 0 ? (w - x) / vx : (0 - x) / vx;
-        let ty = vy > 0 ? (h - y) / vy : (0 - y) / vy;
+        let tx = vx > 0 ? (w - x) / vx : (dvd.clientWidth / 2 - x) / vx;
+        let ty = vy > 0 ? (h - y) / vy : (dvd.clientHeight / 2 - y) / vy;
 
         let t = Math.min(tx, ty);
 
         x += vx * t;
         y += vy * t;
 
-        let hitV = Math.abs(x) < 1 || Math.abs(x - w) < 1;
-        let hitH = Math.abs(y) < 1 || Math.abs(y - h) < 1;
+        let hitV = Math.abs(x - dvd.clientWidth / 2) < 1 || Math.abs(x - w) < 1;
+        let hitH = Math.abs(y - dvd.clientHeight / 2) < 1 || Math.abs(y - h) < 1;
 
         if (hitV) bounces++;
         if (hitH) bounces++;
@@ -316,6 +319,10 @@ function runInstant() {
 function update() {
     if (!animating) return;
 
+    // compute velocity fresh each frame based on current speed
+    vx = baseVX * speedMultiplier;
+    vy = baseVY * speedMultiplier;
+
     spawnTrail();
 
     let x = dvd.offsetLeft + vx;
@@ -327,11 +334,11 @@ function update() {
     let hitCorner = false;
 
     if (x <= 0 || x >= maxX) {
-        vx *= -1;
+        baseVX *= -1;
         bounceCount++;
     }
     if (y <= 0 || y >= maxY) {
-        vy *= -1;
+        baseVY *= -1;
         bounceCount++;
     }
 
