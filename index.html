@@ -11,6 +11,7 @@
         background: #000;
         font-family: Arial, sans-serif;
         color: white;
+        touch-action: none;
     }
 
     #ui {
@@ -26,7 +27,7 @@
         align-items: center;
     }
 
-    select {
+    select, input {
         font-size: 16px;
         padding: 4px 8px;
     }
@@ -71,6 +72,21 @@
         z-index: 40;
         overflow: visible;
     }
+
+    #warning {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0,0,0,0.7);
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-size: 18px;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 60;
+        transition: opacity 0.3s;
+    }
 </style>
 </head>
 
@@ -90,11 +106,16 @@
             <option value="instant">Instant</option>
         </select>
     </label>
+
+    <label>Custom speed:
+        <input id="speedInput" type="number" step="0.1" style="width:70px;" placeholder="">
+    </label>
 </div>
 
 <canvas id="aimLine"></canvas>
 <div id="effects"></div>
 <div id="flash"></div>
+<div id="warning">This shot will never hit a corner.</div>
 
 <div id="dvd"></div>
 
@@ -102,10 +123,12 @@
 const dvd = document.getElementById("dvd");
 const bounceCountEl = document.getElementById("bounceCount");
 const speedSelect = document.getElementById("speedSelect");
+const speedInput = document.getElementById("speedInput");
 const aimCanvas = document.getElementById("aimLine");
 const ctx = aimCanvas.getContext("2d");
 const effects = document.getElementById("effects");
 const flash = document.getElementById("flash");
+const warningEl = document.getElementById("warning");
 
 let dragging = false;
 let offsetX = 0, offsetY = 0;
@@ -145,17 +168,30 @@ function updateColor() {
 }
 setInterval(updateColor, 40);
 
-// Speed change
+// Speed helpers
+function getSpeedMultiplier() {
+    const custom = parseFloat(speedInput.value);
+    if (!isNaN(custom) && custom > 0) return custom;
+    const val = speedSelect.value;
+    if (val === "instant") return "instant";
+    return parseFloat(val);
+}
+
 speedSelect.addEventListener("change", () => {
     const val = speedSelect.value;
-
     if (val === "instant") {
         animating = false;
         runInstant();
         return;
     }
+    const s = getSpeedMultiplier();
+    if (s !== "instant") speedMultiplier = s;
+});
 
-    speedMultiplier = parseFloat(val);
+speedInput.addEventListener("input", () => {
+    const s = getSpeedMultiplier();
+    if (s === "instant") return;
+    speedMultiplier = s;
 });
 
 // Draw dotted aiming line
@@ -171,23 +207,44 @@ function drawAimLine(x1, y1, x2, y2) {
     ctx.stroke();
 }
 
-// Dragging
-dvd.addEventListener("mousedown", e => {
+function clearAimLine() {
+    ctx.clearRect(0, 0, aimCanvas.width, aimCanvas.height);
+}
+
+// Pointer helpers (mouse + touch)
+function getClientPos(e) {
+    if (e.touches && e.touches.length > 0) {
+        return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else {
+        return { x: e.clientX, y: e.clientY };
+    }
+}
+
+// Drag start
+function handleDown(e) {
+    e.preventDefault();
+    const pos = getClientPos(e);
     dragging = true;
     animating = false;
     baseVX = baseVY = 0;
     bounceCount = 0;
     bounceCountEl.textContent = 0;
 
-    offsetX = e.clientX - dvd.offsetLeft;
-    offsetY = e.clientY - dvd.offsetTop;
-});
+    offsetX = pos.x - dvd.offsetLeft;
+    offsetY = pos.y - dvd.offsetTop;
+}
 
-document.addEventListener("mousemove", e => {
+dvd.addEventListener("mousedown", handleDown);
+dvd.addEventListener("touchstart", handleDown, { passive: false });
+
+// Drag move
+function handleMove(e) {
     if (!dragging) return;
+    e.preventDefault();
+    const pos = getClientPos(e);
 
-    dvd.style.left = (e.clientX - offsetX) + "px";
-    dvd.style.top = (e.clientY - offsetY) + "px";
+    dvd.style.left = (pos.x - offsetX) + "px";
+    dvd.style.top = (pos.y - offsetY) + "px";
 
     drawAimLine(
         window.innerWidth / 2,
@@ -195,25 +252,41 @@ document.addEventListener("mousemove", e => {
         dvd.offsetLeft + dvd.clientWidth / 2,
         dvd.offsetTop + dvd.clientHeight / 2
     );
-});
+}
 
-document.addEventListener("mouseup", e => {
+document.addEventListener("mousemove", handleMove);
+document.addEventListener("touchmove", handleMove, { passive: false });
+
+// Drag end
+function handleUp(e) {
     if (!dragging) return;
+    e.preventDefault();
     dragging = false;
 
-    ctx.clearRect(0, 0, aimCanvas.width, aimCanvas.height);
+    clearAimLine();
 
     // True slingshot: shoot toward center
-    baseVX = (window.innerWidth / 2 - (dvd.offsetLeft + dvd.clientWidth / 2)) * 0.15;
-    baseVY = (window.innerHeight / 2 - (dvd.offsetTop + dvd.clientHeight / 2)) * 0.15;
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight / 2;
+    const bx = dvd.offsetLeft + dvd.clientWidth / 2;
+    const by = dvd.offsetTop + dvd.clientHeight / 2;
 
-    if (speedSelect.value === "instant") {
-        runInstant();
+    baseVX = (cx - bx) * 0.15;
+    baseVY = (cy - by) * 0.15;
+
+    const s = getSpeedMultiplier();
+    if (s === "instant") {
+        runInstantWithWarning();
     } else {
+        speedMultiplier = s;
+        showCornerWarningIfNeeded(bx, by, baseVX, baseVY);
         animating = true;
         requestAnimationFrame(update);
     }
-});
+}
+
+document.addEventListener("mouseup", handleUp);
+document.addEventListener("touchend", handleUp, { passive: false });
 
 // Ghost trail
 function spawnTrail() {
@@ -274,45 +347,124 @@ function celebrate() {
     }
 }
 
-// Instant mode
-function runInstant() {
-    let x = dvd.offsetLeft + dvd.clientWidth / 2;
-    let y = dvd.offsetTop + dvd.clientHeight / 2;
-    let w = window.innerWidth - dvd.clientWidth / 2;
-    let h = window.innerHeight - dvd.clientHeight / 2;
+// Warning display
+function showWarning(text) {
+    warningEl.textContent = text;
+    warningEl.style.opacity = "1";
+    setTimeout(() => {
+        warningEl.style.opacity = "0";
+    }, 1500);
+}
 
-    let vx = (window.innerWidth / 2 - x) * 0.15;
-    let vy = (window.innerHeight / 2 - y) * 0.15;
+// Prediction: will this shot ever hit a corner?
+function willEverHitCorner(startX, startY, vx, vy) {
+    let x = startX;
+    let y = startY;
+    const wMin = dvd.clientWidth / 2;
+    const hMin = dvd.clientHeight / 2;
+    const wMax = window.innerWidth - wMin;
+    const hMax = window.innerHeight - hMin;
 
-    let bounces = 0;
+    // safety to avoid infinite loops
+    for (let i = 0; i < 2000; i++) {
+        let tx = vx > 0 ? (wMax - x) / vx : (wMin - x) / vx;
+        let ty = vy > 0 ? (hMax - y) / vy : (hMin - y) / vy;
 
-    while (true) {
-        let tx = vx > 0 ? (w - x) / vx : (dvd.clientWidth / 2 - x) / vx;
-        let ty = vy > 0 ? (h - y) / vy : (dvd.clientHeight / 2 - y) / vy;
+        if (!isFinite(tx) && !isFinite(ty)) break;
 
         let t = Math.min(tx, ty);
+        if (t <= 0) break;
 
         x += vx * t;
         y += vy * t;
 
-        let hitV = Math.abs(x - dvd.clientWidth / 2) < 1 || Math.abs(x - w) < 1;
-        let hitH = Math.abs(y - dvd.clientHeight / 2) < 1 || Math.abs(y - h) < 1;
+        let hitV = Math.abs(x - wMin) < 0.5 || Math.abs(x - wMax) < 0.5;
+        let hitH = Math.abs(y - hMin) < 0.5 || Math.abs(y - hMax) < 0.5;
+
+        if (hitV && hitH) return true;
+
+        if (hitV) vx *= -1;
+        if (hitH) vy *= -1;
+    }
+    return false;
+}
+
+function showCornerWarningIfNeeded(startX, startY, vx, vy) {
+    const canHit = willEverHitCorner(startX, startY, vx, vy);
+    if (!canHit) {
+        showWarning("This shot will never hit a corner.");
+    }
+}
+
+// Instant mode with crash‑safe loop
+function runInstantWithWarning() {
+    const bx = dvd.offsetLeft + dvd.clientWidth / 2;
+    const by = dvd.offsetTop + dvd.clientHeight / 2;
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight / 2;
+
+    let vx = (cx - bx) * 0.15;
+    let vy = (cy - by) * 0.15;
+
+    const canHit = willEverHitCorner(bx, by, vx, vy);
+    if (!canHit) {
+        showWarning("This shot will never hit a corner.");
+        // just center and bail
+        centerDVD();
+        return;
+    }
+
+    runInstant(bx, by, vx, vy);
+}
+
+// Instant mode core
+function runInstant(startX, startY, vx, vy) {
+    let x = startX;
+    let y = startY;
+
+    const wMin = dvd.clientWidth / 2;
+    const hMin = dvd.clientHeight / 2;
+    const wMax = window.innerWidth - wMin;
+    const hMax = window.innerHeight - hMin;
+
+    let bounces = 0;
+
+    for (let i = 0; i < 2000; i++) {
+        let tx = vx > 0 ? (wMax - x) / vx : (wMin - x) / vx;
+        let ty = vy > 0 ? (hMax - y) / vy : (hMin - y) / vy;
+
+        if (!isFinite(tx) && !isFinite(ty)) break;
+
+        let t = Math.min(tx, ty);
+        if (t <= 0) break;
+
+        x += vx * t;
+        y += vy * t;
+
+        let hitV = Math.abs(x - wMin) < 0.5 || Math.abs(x - wMax) < 0.5;
+        let hitH = Math.abs(y - hMin) < 0.5 || Math.abs(y - hMax) < 0.5;
 
         if (hitV) bounces++;
         if (hitH) bounces++;
 
-        if (hitV && hitH) break;
+        if (hitV && hitH) {
+            // place dvd at corner
+            dvd.style.left = (x - dvd.clientWidth / 2) + "px";
+            dvd.style.top = (y - dvd.clientHeight / 2) + "px";
+            bounceCountEl.textContent = bounces;
+            celebrate();
+            setTimeout(() => centerDVD(), 600);
+            return;
+        }
 
         if (hitV) vx *= -1;
         if (hitH) vy *= -1;
     }
 
+    // if we exit loop without corner, just center and show warning
     bounceCountEl.textContent = bounces;
-    celebrate();
-
-    setTimeout(() => {
-        centerDVD();
-    }, 600);
+    showWarning("This shot will never hit a corner.");
+    centerDVD();
 }
 
 // Animation loop
@@ -320,6 +472,13 @@ function update() {
     if (!animating) return;
 
     // compute velocity fresh each frame based on current speed
+    const s = getSpeedMultiplier();
+    if (s === "instant") {
+        animating = false;
+        runInstantWithWarning();
+        return;
+    }
+    speedMultiplier = s;
     vx = baseVX * speedMultiplier;
     vy = baseVY * speedMultiplier;
 
@@ -354,11 +513,7 @@ function update() {
     if (hitCorner) {
         animating = false;
         celebrate();
-
-        setTimeout(() => {
-            centerDVD();
-        }, 600);
-
+        setTimeout(() => centerDVD(), 600);
         return;
     }
 
