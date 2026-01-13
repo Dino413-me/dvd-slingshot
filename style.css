@@ -1,0 +1,145 @@
+body {
+    margin: 0;
+    overflow: hidden;
+    background: #000;
+    font-family: Arial, sans-serif;
+    color: white;
+    touch-action: none;
+}
+
+/* MODE SELECT SCREEN */
+#modeSelectScreen {
+    position: fixed;
+    inset: 0;
+    background: black;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 30px;
+    z-index: 100;
+}
+
+#title {
+    font-size: 60px;
+    margin-bottom: 20px;
+}
+
+.modeBtn {
+    font-size: 28px;
+    padding: 15px 40px;
+    border: none;
+    border-radius: 10px;
+    background: #222;
+    color: white;
+    cursor: pointer;
+}
+.modeBtn:hover {
+    background: #444;
+}
+
+/* EXIT BUTTON */
+#exitBtn {
+    position: fixed;
+    top: 15px;
+    right: 15px;
+    font-size: 28px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    cursor: pointer;
+    z-index: 90;
+    display: none;
+}
+
+/* UI PANEL */
+#uiPanel {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 80;
+    background: rgba(0,0,0,0.4);
+    padding: 10px 14px;
+    border-radius: 8px;
+    display: none;
+}
+
+#classicUI, #floodUI, #infinityUI {
+    display: none;
+}
+
+select, input {
+    font-size: 16px;
+    padding: 4px 8px;
+}
+
+/* DVD BLOCK */
+#dvd {
+    width: 100px;
+    height: 50px;
+    background: red;
+    position: absolute;
+    border-radius: 8px;
+    user-select: none;
+}
+
+/* TRAILS */
+.trail {
+    position: absolute;
+    width: 100px;
+    height: 50px;
+    border-radius: 8px;
+    pointer-events: none;
+    opacity: 0.4;
+}
+
+/* AIM LINE */
+#aimLine {
+    position: absolute;
+    pointer-events: none;
+    z-index: 5;
+}
+
+/* FLOOD CANVAS */
+#floodCanvas {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+}
+
+/* EFFECTS */
+#effects {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 40;
+}
+
+/* FLASH */
+#flash {
+    position: fixed;
+    inset: 0;
+    background: white;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 50;
+}
+
+/* WARNING */
+#warning {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.7);
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 20px;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 60;
+    transition: opacity 0.3s;
+}
