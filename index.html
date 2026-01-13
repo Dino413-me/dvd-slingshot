@@ -1,525 +1,92 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>DVD Bounce Launcher — Slingshot Edition</title>
-
-<style>
-    body {
-        margin: 0;
-        overflow: hidden;
-        background: #000;
-        font-family: Arial, sans-serif;
-        color: white;
-        touch-action: none;
-    }
-
-    #ui {
-        position: fixed;
-        top: 10px;
-        left: 10px;
-        z-index: 20;
-        background: rgba(0,0,0,0.4);
-        padding: 8px 12px;
-        border-radius: 6px;
-        display: flex;
-        gap: 20px;
-        align-items: center;
-    }
-
-    select, input {
-        font-size: 16px;
-        padding: 4px 8px;
-    }
-
-    #dvd {
-        width: 100px;
-        height: 50px;
-        background: #ff0000;
-        position: absolute;
-        border-radius: 8px;
-        user-select: none;
-    }
-
-    .trail {
-        position: absolute;
-        width: 100px;
-        height: 50px;
-        border-radius: 8px;
-        pointer-events: none;
-        opacity: 0.4;
-    }
-
-    #aimLine {
-        position: absolute;
-        pointer-events: none;
-        z-index: 5;
-    }
-
-    #flash {
-        position: fixed;
-        inset: 0;
-        background: white;
-        opacity: 0;
-        pointer-events: none;
-        z-index: 50;
-    }
-
-    #effects {
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        z-index: 40;
-        overflow: visible;
-    }
-
-    #warning {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: rgba(0,0,0,0.7);
-        padding: 10px 20px;
-        border-radius: 8px;
-        font-size: 18px;
-        opacity: 0;
-        pointer-events: none;
-        z-index: 60;
-        transition: opacity 0.3s;
-    }
-</style>
+    <meta charset="UTF-8" />
+    <title>DVD Multi‑Mode Game</title>
+    <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
 
-<div id="ui">
-    <div>Bounces: <span id="bounceCount">0</span></div>
-
-    <label>Speed:
-        <select id="speedSelect">
-            <option value="0.25">0.25x</option>
-            <option value="0.5">0.5x</option>
-            <option value="1" selected>1x</option>
-            <option value="1.5">1.5x</option>
-            <option value="2">2x</option>
-            <option value="5">5x</option>
-            <option value="instant">Instant</option>
-        </select>
-    </label>
-
-    <label>Custom speed:
-        <input id="speedInput" type="number" step="0.1" style="width:70px;" placeholder="">
-    </label>
-</div>
-
-<canvas id="aimLine"></canvas>
-<div id="effects"></div>
-<div id="flash"></div>
-<div id="warning">This shot will never hit a corner.</div>
-
-<div id="dvd"></div>
-
-<script>
-const dvd = document.getElementById("dvd");
-const bounceCountEl = document.getElementById("bounceCount");
-const speedSelect = document.getElementById("speedSelect");
-const speedInput = document.getElementById("speedInput");
-const aimCanvas = document.getElementById("aimLine");
-const ctx = aimCanvas.getContext("2d");
-const effects = document.getElementById("effects");
-const flash = document.getElementById("flash");
-const warningEl = document.getElementById("warning");
-
-let dragging = false;
-let offsetX = 0, offsetY = 0;
-
-// base velocity (never multiplied)
-let baseVX = 0;
-let baseVY = 0;
-
-// actual velocity (computed each frame)
-let vx = 0;
-let vy = 0;
-
-let bounceCount = 0;
-let animating = false;
-let speedMultiplier = 1;
-
-// Resize aiming canvas
-function resizeCanvas() {
-    aimCanvas.width = window.innerWidth;
-    aimCanvas.height = window.innerHeight;
-}
-resizeCanvas();
-window.addEventListener("resize", resizeCanvas);
-
-// Center DVD
-function centerDVD() {
-    dvd.style.left = (window.innerWidth / 2 - dvd.clientWidth / 2) + "px";
-    dvd.style.top = (window.innerHeight / 2 - dvd.clientHeight / 2) + "px";
-}
-centerDVD();
-
-// Color cycle
-let hue = 0;
-function updateColor() {
-    hue = (hue + 1) % 360;
-    dvd.style.background = `hsl(${hue}, 100%, 50%)`;
-}
-setInterval(updateColor, 40);
-
-// Speed helpers
-function getSpeedMultiplier() {
-    const custom = parseFloat(speedInput.value);
-    if (!isNaN(custom) && custom > 0) return custom;
-    const val = speedSelect.value;
-    if (val === "instant") return "instant";
-    return parseFloat(val);
-}
-
-speedSelect.addEventListener("change", () => {
-    const val = speedSelect.value;
-    if (val === "instant") {
-        animating = false;
-        runInstant();
-        return;
-    }
-    const s = getSpeedMultiplier();
-    if (s !== "instant") speedMultiplier = s;
-});
-
-speedInput.addEventListener("input", () => {
-    const s = getSpeedMultiplier();
-    if (s === "instant") return;
-    speedMultiplier = s;
-});
-
-// Draw dotted aiming line
-function drawAimLine(x1, y1, x2, y2) {
-    ctx.clearRect(0, 0, aimCanvas.width, aimCanvas.height);
-    ctx.setLineDash([4, 6]);
-    ctx.strokeStyle = "white";
-    ctx.lineWidth = 2;
-
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-}
-
-function clearAimLine() {
-    ctx.clearRect(0, 0, aimCanvas.width, aimCanvas.height);
-}
-
-// Pointer helpers (mouse + touch)
-function getClientPos(e) {
-    if (e.touches && e.touches.length > 0) {
-        return { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    } else {
-        return { x: e.clientX, y: e.clientY };
-    }
-}
-
-// Drag start
-function handleDown(e) {
-    e.preventDefault();
-    const pos = getClientPos(e);
-    dragging = true;
-    animating = false;
-    baseVX = baseVY = 0;
-    bounceCount = 0;
-    bounceCountEl.textContent = 0;
-
-    offsetX = pos.x - dvd.offsetLeft;
-    offsetY = pos.y - dvd.offsetTop;
-}
-
-dvd.addEventListener("mousedown", handleDown);
-dvd.addEventListener("touchstart", handleDown, { passive: false });
-
-// Drag move
-function handleMove(e) {
-    if (!dragging) return;
-    e.preventDefault();
-    const pos = getClientPos(e);
-
-    dvd.style.left = (pos.x - offsetX) + "px";
-    dvd.style.top = (pos.y - offsetY) + "px";
-
-    drawAimLine(
-        window.innerWidth / 2,
-        window.innerHeight / 2,
-        dvd.offsetLeft + dvd.clientWidth / 2,
-        dvd.offsetTop + dvd.clientHeight / 2
-    );
-}
-
-document.addEventListener("mousemove", handleMove);
-document.addEventListener("touchmove", handleMove, { passive: false });
-
-// Drag end
-function handleUp(e) {
-    if (!dragging) return;
-    e.preventDefault();
-    dragging = false;
-
-    clearAimLine();
-
-    // True slingshot: shoot toward center
-    const cx = window.innerWidth / 2;
-    const cy = window.innerHeight / 2;
-    const bx = dvd.offsetLeft + dvd.clientWidth / 2;
-    const by = dvd.offsetTop + dvd.clientHeight / 2;
-
-    baseVX = (cx - bx) * 0.15;
-    baseVY = (cy - by) * 0.15;
-
-    const s = getSpeedMultiplier();
-    if (s === "instant") {
-        runInstantWithWarning();
-    } else {
-        speedMultiplier = s;
-        showCornerWarningIfNeeded(bx, by, baseVX, baseVY);
-        animating = true;
-        requestAnimationFrame(update);
-    }
-}
-
-document.addEventListener("mouseup", handleUp);
-document.addEventListener("touchend", handleUp, { passive: false });
-
-// Ghost trail
-function spawnTrail() {
-    const t = document.createElement("div");
-    t.className = "trail";
-    t.style.left = dvd.style.left;
-    t.style.top = dvd.style.top;
-    t.style.background = dvd.style.background;
-    t.style.opacity = "0.4";
-    document.body.appendChild(t);
-
-    setTimeout(() => {
-        t.style.transition = "opacity 0.4s";
-        t.style.opacity = "0";
-        setTimeout(() => t.remove(), 400);
-    }, 10);
-}
-
-// Corner celebration
-function celebrate() {
-    flash.style.transition = "none";
-    flash.style.opacity = "1";
-    setTimeout(() => {
-        flash.style.transition = "opacity 0.5s";
-        flash.style.opacity = "0";
-    }, 50);
-
-    for (let i = 0; i < 40; i++) {
-        const p = document.createElement("div");
-        p.style.position = "absolute";
-        p.style.width = "6px";
-        p.style.height = "6px";
-        p.style.background = `hsl(${Math.random()*360},100%,50%)`;
-        p.style.left = dvd.offsetLeft + dvd.clientWidth/2 + "px";
-        p.style.top = dvd.offsetTop + dvd.clientHeight/2 + "px";
-        p.style.borderRadius = "50%";
-        p.style.pointerEvents = "none";
-        effects.appendChild(p);
-
-        const angle = Math.random() * Math.PI * 2;
-        const speed = 4 + Math.random() * 6;
-
-        let vx = Math.cos(angle) * speed;
-        let vy = Math.sin(angle) * speed;
-
-        let life = 30 + Math.random()*20;
-
-        function animateParticle() {
-            p.style.left = (parseFloat(p.style.left) + vx) + "px";
-            p.style.top = (parseFloat(p.style.top) + vy) + "px";
-            vy += 0.2;
-            life--;
-
-            if (life > 0) requestAnimationFrame(animateParticle);
-            else p.remove();
-        }
-        animateParticle();
-    }
-}
-
-// Warning display
-function showWarning(text) {
-    warningEl.textContent = text;
-    warningEl.style.opacity = "1";
-    setTimeout(() => {
-        warningEl.style.opacity = "0";
-    }, 1500);
-}
-
-// Prediction: will this shot ever hit a corner?
-function willEverHitCorner(startX, startY, vx, vy) {
-    let x = startX;
-    let y = startY;
-    const wMin = dvd.clientWidth / 2;
-    const hMin = dvd.clientHeight / 2;
-    const wMax = window.innerWidth - wMin;
-    const hMax = window.innerHeight - hMin;
-
-    // safety to avoid infinite loops
-    for (let i = 0; i < 2000; i++) {
-        let tx = vx > 0 ? (wMax - x) / vx : (wMin - x) / vx;
-        let ty = vy > 0 ? (hMax - y) / vy : (hMin - y) / vy;
-
-        if (!isFinite(tx) && !isFinite(ty)) break;
-
-        let t = Math.min(tx, ty);
-        if (t <= 0) break;
-
-        x += vx * t;
-        y += vy * t;
-
-        let hitV = Math.abs(x - wMin) < 0.5 || Math.abs(x - wMax) < 0.5;
-        let hitH = Math.abs(y - hMin) < 0.5 || Math.abs(y - hMax) < 0.5;
-
-        if (hitV && hitH) return true;
-
-        if (hitV) vx *= -1;
-        if (hitH) vy *= -1;
-    }
-    return false;
-}
-
-function showCornerWarningIfNeeded(startX, startY, vx, vy) {
-    const canHit = willEverHitCorner(startX, startY, vx, vy);
-    if (!canHit) {
-        showWarning("This shot will never hit a corner.");
-    }
-}
-
-// Instant mode with crash‑safe loop
-function runInstantWithWarning() {
-    const bx = dvd.offsetLeft + dvd.clientWidth / 2;
-    const by = dvd.offsetTop + dvd.clientHeight / 2;
-    const cx = window.innerWidth / 2;
-    const cy = window.innerHeight / 2;
-
-    let vx = (cx - bx) * 0.15;
-    let vy = (cy - by) * 0.15;
-
-    const canHit = willEverHitCorner(bx, by, vx, vy);
-    if (!canHit) {
-        showWarning("This shot will never hit a corner.");
-        // just center and bail
-        centerDVD();
-        return;
-    }
-
-    runInstant(bx, by, vx, vy);
-}
-
-// Instant mode core
-function runInstant(startX, startY, vx, vy) {
-    let x = startX;
-    let y = startY;
-
-    const wMin = dvd.clientWidth / 2;
-    const hMin = dvd.clientHeight / 2;
-    const wMax = window.innerWidth - wMin;
-    const hMax = window.innerHeight - hMin;
-
-    let bounces = 0;
-
-    for (let i = 0; i < 2000; i++) {
-        let tx = vx > 0 ? (wMax - x) / vx : (wMin - x) / vx;
-        let ty = vy > 0 ? (hMax - y) / vy : (hMin - y) / vy;
-
-        if (!isFinite(tx) && !isFinite(ty)) break;
-
-        let t = Math.min(tx, ty);
-        if (t <= 0) break;
-
-        x += vx * t;
-        y += vy * t;
-
-        let hitV = Math.abs(x - wMin) < 0.5 || Math.abs(x - wMax) < 0.5;
-        let hitH = Math.abs(y - hMin) < 0.5 || Math.abs(y - hMax) < 0.5;
-
-        if (hitV) bounces++;
-        if (hitH) bounces++;
-
-        if (hitV && hitH) {
-            // place dvd at corner
-            dvd.style.left = (x - dvd.clientWidth / 2) + "px";
-            dvd.style.top = (y - dvd.clientHeight / 2) + "px";
-            bounceCountEl.textContent = bounces;
-            celebrate();
-            setTimeout(() => centerDVD(), 600);
-            return;
-        }
-
-        if (hitV) vx *= -1;
-        if (hitH) vy *= -1;
-    }
-
-    // if we exit loop without corner, just center and show warning
-    bounceCountEl.textContent = bounces;
-    showWarning("This shot will never hit a corner.");
-    centerDVD();
-}
-
-// Animation loop
-function update() {
-    if (!animating) return;
-
-    // compute velocity fresh each frame based on current speed
-    const s = getSpeedMultiplier();
-    if (s === "instant") {
-        animating = false;
-        runInstantWithWarning();
-        return;
-    }
-    speedMultiplier = s;
-    vx = baseVX * speedMultiplier;
-    vy = baseVY * speedMultiplier;
-
-    spawnTrail();
-
-    let x = dvd.offsetLeft + vx;
-    let y = dvd.offsetTop + vy;
-
-    const maxX = window.innerWidth - dvd.clientWidth;
-    const maxY = window.innerHeight - dvd.clientHeight;
-
-    let hitCorner = false;
-
-    if (x <= 0 || x >= maxX) {
-        baseVX *= -1;
-        bounceCount++;
-    }
-    if (y <= 0 || y >= maxY) {
-        baseVY *= -1;
-        bounceCount++;
-    }
-
-    if ((x <= 0 || x >= maxX) && (y <= 0 || y >= maxY)) {
-        hitCorner = true;
-    }
-
-    bounceCountEl.textContent = bounceCount;
-
-    dvd.style.left = Math.max(0, Math.min(maxX, x)) + "px";
-    dvd.style.top = Math.max(0, Math.min(maxY, y)) + "px";
-
-    if (hitCorner) {
-        animating = false;
-        celebrate();
-        setTimeout(() => centerDVD(), 600);
-        return;
-    }
-
-    requestAnimationFrame(update);
-}
-</script>
-
+    <!-- MODE SELECT SCREEN -->
+    <div id="modeSelectScreen">
+        <h1 id="title">DVD Bounce</h1>
+        <button class="modeBtn" onclick="enterClassic()">Classic Mode</button>
+        <button class="modeBtn" onclick="enterFlood()">Flood Mode</button>
+        <button class="modeBtn" onclick="enterInfinity()">Infinity Mode</button>
+    </div>
+
+    <!-- EXIT BUTTON -->
+    <button id="exitBtn" onclick="returnToMenu()">X</button>
+
+    <!-- UI PANEL -->
+    <div id="uiPanel">
+        <div id="classicUI">
+            <div>Bounces: <span id="bounceCount">0</span></div>
+
+            <label>Speed:
+                <select id="speedSelect">
+                    <option value="0.25">0.25x</option>
+                    <option value="0.5">0.5x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="2">2x</option>
+                    <option value="5">5x</option>
+                    <option value="instant">Instant</option>
+                </select>
+            </label>
+
+            <label>Custom speed:
+                <input id="speedInput" type="number" step="0.1" placeholder="">
+            </label>
+        </div>
+
+        <div id="floodUI">
+            <label>Flood Mode:
+                <select id="floodModeSelect">
+                    <option value="corner">Corner‑End Mode</option>
+                    <option value="timer">Timer Mode</option>
+                </select>
+            </label>
+
+            <div id="timerOptions">
+                <label>Timer:
+                    <select id="timerPreset">
+                        <option value="10">10 sec</option>
+                        <option value="20">20 sec</option>
+                        <option value="30">30 sec</option>
+                    </select>
+                </label>
+
+                <label>Custom:
+                    <input id="timerCustom" type="number" placeholder="sec">
+                </label>
+            </div>
+
+            <div>Coverage: <span id="coveragePercent">0%</span></div>
+        </div>
+
+        <div id="infinityUI">
+            <label>Style:
+                <select id="infinityStyle">
+                    <option value="classic">Classic</option>
+                    <option value="rainbowOpposites">Rainbow Opposites</option>
+                </select>
+            </label>
+
+            <button id="stopInfinity" onclick="stopInfinityMode()">STOP</button>
+        </div>
+    </div>
+
+    <!-- GAME ELEMENTS -->
+    <canvas id="aimLine"></canvas>
+    <canvas id="floodCanvas"></canvas>
+    <div id="effects"></div>
+    <div id="flash"></div>
+    <div id="warning">This shot will never hit a corner.</div>
+
+    <div id="dvd"></div>
+
+    <script src="game.js"></script>
 </body>
 </html>
